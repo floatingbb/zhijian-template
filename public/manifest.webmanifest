@@ -1,0 +1,16 @@
+{
+  "id": "/",
+  "name": "纸间 · 读一点旧时光",
+  "short_name": "纸间",
+  "description": "诗词、古文与历史日常。随手翻读，留一点旧时光。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f3ec",
+  "theme_color": "#f6f3ec",
+  "icons": [
+    { "src": "/icon-192-v2.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512-v2.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

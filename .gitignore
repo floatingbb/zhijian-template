@@ -1,0 +1,23 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+# Personal content, reading records and drafts
+data/
+backups/
+*.log
+# Build, editor, and hosting identity
+node_modules/
+dist/
+coverage/
+.openai/
+.wrangler/
+.vercel/
+.DS_Store
+Thumbs.db
+.vscode/
+*.zip
