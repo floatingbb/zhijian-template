@@ -47,7 +47,7 @@ async function syncProfile(manual=false){if(profileBusy)return profileBusy;profi
     profileAccount=data.account;profileScope=data.account;
     // Never move a known account's offline changes to a different account.
     profilePending=mergePending(pendingFor(profileScope),previousScope===profileScope||previousScope===null?previousPending:[]);
-    if(!getLocal('zhijian-template-imported-account',null)){for(const [field,set]of [['saved',saved],['read',readIds]])for(const id of set)if(!profilePending.some(o=>o.field===field&&o.entryId===String(id)))profilePending.push({id:opId(),entryId:String(id),field,value:true,at:0});}
+    if((previousScope===null||previousScope===profileScope)&&!getLocal('zhijian-template-imported-account',null)){for(const [field,set]of [['saved',saved],['read',readIds]])for(const id of set)if(!profilePending.some(o=>o.field===field&&o.entryId===String(id)))profilePending.push({id:opId(),entryId:String(id),field,value:true,at:0});}
     cachePending();putLocal('zhijian-template-last-account',profileScope);
     if(previousScope===null)putLocal('zhijian-template-pending-local',[]);
   }

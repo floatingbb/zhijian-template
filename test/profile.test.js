@@ -46,3 +46,7 @@ test('pending changes stay with their original account when login changes',async
 test('an old pending operation cannot undo a newer remote cancellation',async()=>{
  const api=server(),client=device(api);await settle();client.control.offline=true;client.run('toggleRead(6)');const at=client.run('profilePending[0].at');api.accounts.set('a',{'6':{read:{value:false,at:at+1,id:'newer_remote'}}});client.control.offline=false;await client.run('syncProfile()');assert.equal(client.run('readIds.has("6")'),false);assert.equal(api.accounts.get('a')['6'].read.value,false);
 });
+test('switching account during the first incomplete migration cannot copy its marks',async()=>{
+ const api=server(),storage=new Map([[prefix+'-saved','["7"]']]);const client=device(api,storage,true);await settle();client.control.offline=false;client.control.failPost=true;await client.run('syncProfile()');assert.equal(client.run('profilePending.length'),1);assert.equal(storage.get(prefix+'-imported-account'),undefined);
+ client.control.failPost=false;client.control.account='b';await client.run('syncProfile()');assert.equal(api.accounts.get('b')['7'],undefined);client.control.account='a';await client.run('syncProfile()');assert.equal(api.accounts.get('a')['7'].saved.value,true);
+});
