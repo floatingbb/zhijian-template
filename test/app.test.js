@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createApp } from '../src/server.js';
 import { Store } from '../src/store.js';
 import { configFromEnv } from '../src/config.js';
-import { Updater, parseModelEntry, plainText, generateEntry } from '../src/updater.js';
+import { Updater, parseModelEntry, plainText, generateEntry, collectCandidates } from '../src/updater.js';
 const temporaryRoot=process.env.TEST_TMP_DIR||tmpdir();
 
 const entry=JSON.parse(await readFile(new URL('../public/seed.json',import.meta.url),'utf8'))[0];
@@ -22,3 +22,22 @@ test('source text is cleaned and fabricated quotes are rejected',()=>{assert.equ
 test('own key is sent only to configured provider and never on redirect',async()=>{let seen;const config={aiBase:'https://provider.example/v1',aiKey:'test-key-no-value',aiModel:'chosen-model',aiMaxTokens:1000};const result=await generateEntry(source,config,async(url,options)=>{seen={url,options};return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(model)}}]}));});assert.equal(seen.url,'https://provider.example/v1/chat/completions');assert.equal(seen.options.headers.Authorization,'Bearer test-key-no-value');assert.equal(seen.options.redirect,'error');assert.equal(result.author,'王维');});
 test('generation stores a draft and a repeated quote is not duplicated',async t=>{const dir=await mkdtemp(join(tmpdir(),'zhijian-updater-'));t.after(()=>rm(dir,{recursive:true,force:true}));const store=new Store(dir);await store.init();let calls=0;const fetcher=async url=>{if(String(url).includes('api.php'))return new Response(JSON.stringify({parse:{title:'测试原典',text:'<p>作者：王维。这是一段用于测试抓取流程的原典说明文字。行到水穷处，坐看云起时。其他文字用来保证资料长度符合短读要求。</p>',categories:[]}}));calls++;return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(model)}}]}));};const catalog=Array.from({length:12},(_,i)=>({title:'测试'+i,category:'诗词'}));const config={aiKey:'test-key-no-value',aiBase:'https://provider.example/v1',aiModel:'test',dailyCount:1,autoPublish:false};const u=new Updater(store,config,{fetcher,catalog});assert.equal((await u.run(1)).added,1);assert.equal((await store.read()).entries.length,0);assert.equal((await store.read()).drafts.length,1);await u.run(1);assert.equal((await store.read()).drafts.length,1);assert(calls>0);});
 test('scheduler is opt-in and invokes at most once per local date',async t=>{const dir=await mkdtemp(join(tmpdir(),'zhijian-scheduler-'));t.after(()=>rm(dir,{recursive:true,force:true}));const store=new Store(dir);await store.init();let calls=0;const c={aiKey:'test',aiBase:'https://provider.example',aiModel:'m',autoEnabled:false,timezone:'Asia/Shanghai',hour:8};const u=new Updater(store,c);u.run=async()=>{calls++;throw new Error('offline');};await u.tick(new Date('2026-10-28T01:00:00Z'));assert.equal(calls,0);c.autoEnabled=true;await u.tick(new Date('2026-10-28T01:00:00Z'));await u.tick(new Date('2026-10-28T02:00:00Z'));assert.equal(calls,1);});
+
+test('unused discovered pages survive restart, including failed attempts',async t=>{
+ const dir=await mkdtemp(join(temporaryRoot,'zhijian-discovery-'));t.after(()=>rm(dir,{recursive:true,force:true}));let store=new Store(dir);await store.init();let categoryCalls=0,failFirst=true;const attempted=[];
+ const fetcher=async(url,options)=>{
+   if(String(url).includes('categorymembers')){categoryCalls++;return new Response(JSON.stringify({query:{categorymembers:Array.from({length:50},(_,i)=>({ns:0,title:'原典'+i}))},continue:{cmcontinue:'next-page'}}));}
+   if(String(url).includes('api.php')){const title=new URL(url).searchParams.get('page');attempted.push(title);if(failFirst&&title==='原典0')throw new Error('temporary source failure');const quote='山川风月草木人间'+title+'岁月静好';return new Response(JSON.stringify({parse:{title,text:'<p>这是为验证候选队列专门准备的测试文本，长度满足抓取要求。'+quote+'。还有其他用于测试的文字。</p>',categories:[]}}));}
+   const input=JSON.parse(JSON.parse(options.body).messages[1].content),quote='山川风月草木人间'+input.sourceTitle+'岁月静好';return new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({...model,quote})}}]}));
+ };
+ const config={aiKey:'test-key-no-value',aiBase:'https://provider.example',aiModel:'mock',dailyCount:1,autoPublish:false};
+ let updater=new Updater(store,config,{fetcher,catalog:[]});assert.equal((await updater.run(1)).added,1);let state=await store.read();assert.equal(state.discovery.pending.length,49);assert(state.discovery.pending.some(x=>x.title==='原典0'));assert.equal(state.discovery.queue[0].continue,'next-page');
+ store=new Store(dir);await store.init();failFirst=false;updater=new Updater(store,config,{fetcher,catalog:[]});assert.equal((await updater.run(1)).added,1);assert.equal(categoryCalls,1,'reuse stored pages before fetching another category page');assert.equal(attempted.at(-1),'原典2','untried sources are attempted before a failed source');
+ for(let i=0;i<48;i++)await updater.run(1);state=await store.read();assert.equal(state.drafts.length,50);assert.equal(state.discovery.pending.length,0);assert(state.sourceHistory.includes('原典0'),'failed source eventually gets another attempt');
+});
+
+test('upgrading an old exhausted cursor rediscovers skipped pages without reusing consumed sources',async()=>{
+ const state={sourceHistory:['已用篇目'],discovery:{queue:[],visited:['唐诗','宋詞','古文觀止']}};let calls=0;
+ const candidates=await collectCandidates(state,[],async()=>{calls++;return new Response(JSON.stringify({query:{categorymembers:[{ns:0,title:'已用篇目'},{ns:0,title:'以前漏掉的篇目'}]}}));});
+ assert(calls>0);assert(candidates.some(x=>x.title==='以前漏掉的篇目'));assert(!candidates.some(x=>x.title==='已用篇目'));
+});

@@ -24,18 +24,32 @@ $('about').onclick=about;$('sources').onclick=about;
 let refreshing=false;async function syncContent(manual=false){if(refreshing)return;refreshing=true;$('syncContent').disabled=true;try{const r=await fetch('/api/content',{cache:'no-store'});if(!r.ok)throw new Error('内容同步暂不可用');const data=await r.json();if(!Array.isArray(data.entries))throw new Error('内容格式无效');const n=data.entries.length-entries.length;entries=data.entries.sort((a,b)=>(b.addedAt||'').localeCompare(a.addedAt||''));render();$('updateStatus').textContent=data.updatedAt?`最近上新 ${new Intl.DateTimeFormat('zh-CN',{timeZone:'Etc/GMT+5',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(data.updatedAt))} · UTC−5`:'内容库已就绪';if(manual)notify(n>0?`新收录 ${n} 则，已同步`:'已经是最新内容');}catch{if(manual)notify('同步暂时失败，已保留现有内容，请稍后重试。');else $('updateStatus').textContent='暂未连上更新，当前内容仍可阅读';}finally{refreshing=false;$('syncContent').disabled=false;}}
 $('syncContent').onclick=()=>syncContent(true);
 let profileAccount=null,profileRecords={},profilePending=[],profileBusy=null,profileClock=Date.now(),retryTimer=null;
+// Remember only the queue's owner here; authentication still comes from the server.
+let profileScope=getLocal('zhijian-template-last-account',getLocal('zhijian-template-imported-account',null));
+if(typeof profileScope!=='string')profileScope=null;
+function pendingFor(scope){const value=getLocal('zhijian-template-pending-'+(scope||'local'),[]);return Array.isArray(value)?value:[];}
+function mergePending(...lists){return [...new Map(lists.flat().map(op=>[op.id,op])).values()];}
+profilePending=pendingFor(profileScope);
+for(const op of profilePending)profileClock=Math.max(profileClock,op.at||0);
+for(const record of Object.values(getLocal('zhijian-template-profile-'+profileScope,{})))for(const field of ['read','saved'])profileClock=Math.max(profileClock,record[field]?.at||0);
 function getLocal(key,fallback){try{const value=localStorage.getItem(key);return value?JSON.parse(value):fallback;}catch{storageOK=false;return fallback;}}
 function putLocal(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{storageOK=false;}}
 function opId(){return 'op_'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));}
 function profileNotice(text,login=false){$('profileStatus').textContent=text;$('profileLogin').hidden=!login;}
-function cachePending(){if(profileAccount)putLocal('zhijian-template-pending-'+profileAccount,profilePending);}
+function cachePending(){putLocal('zhijian-template-pending-'+(profileScope||'local'),profilePending);}
 function applyProfile(records){profileRecords=records||{};const merged=JSON.parse(JSON.stringify(profileRecords));for(const op of profilePending){const r=merged[op.entryId]||{},old=r[op.field];if(!old||op.at>old.at||(op.at===old.at&&op.id>old.id))r[op.field]={value:op.value,at:op.at,id:op.id};merged[op.entryId]=r;}saved.clear();readIds.clear();for(const [id,r]of Object.entries(merged)){if(r.saved?.value)saved.add(id);if(r.read?.value)readIds.add(id);for(const field of ['saved','read'])if(r[field])profileClock=Math.max(profileClock,r[field].at);}persist('zhijian-template-saved',saved);persist('zhijian-template-read',readIds);if(profileAccount)putLocal('zhijian-template-profile-'+profileAccount,profileRecords);render();updateDialogControls();}
-function queueChange(entryId,field,value){if(profileAccount){profileClock=Math.max(Date.now(),profileClock+1);profilePending.push({id:opId(),entryId,field,value,at:profileClock});cachePending();profileNotice('有新标记，正在同步…');}else profileNotice('标记暂存本机，登录后自动合并',true);scheduleProfileSync();}
+function queueChange(entryId,field,value){profileClock=Math.max(Date.now(),profileClock+1);profilePending.push({id:opId(),entryId,field,value,at:profileClock});cachePending();profileNotice(profileAccount?'有新标记，正在同步…':'标记已暂存本机，联网登录后继续同步',!profileAccount);scheduleProfileSync();}
 function scheduleProfileSync(){clearTimeout(retryTimer);retryTimer=setTimeout(()=>syncProfile(),350);}
 async function syncProfile(manual=false){if(profileBusy)return profileBusy;profileBusy=(async()=>{try{
   const response=await fetch('/api/profile',{cache:'no-store'});if(response.status===401){profileAccount=null;profileNotice('登录此实例后同步收藏与已读',true);return;}if(!response.ok)throw new Error();const data=await response.json();if(typeof data.account!=='string'||!data.records)throw new Error();
-  if(profileAccount!==data.account){profileAccount=data.account;const queued=getLocal('zhijian-template-pending-'+profileAccount,[]);profilePending=Array.isArray(queued)?queued:[];
-    if(!getLocal('zhijian-template-imported-account',null)){for(const [field,set]of [['saved',saved],['read',readIds]])for(const id of set)if(!profilePending.some(o=>o.field===field&&o.entryId===String(id)))profilePending.push({id:opId(),entryId:String(id),field,value:true,at:0});cachePending();}
+  if(profileAccount!==data.account){
+    const previousScope=profileScope,previousPending=profilePending;
+    profileAccount=data.account;profileScope=data.account;
+    // Never move a known account's offline changes to a different account.
+    profilePending=mergePending(pendingFor(profileScope),previousScope===profileScope||previousScope===null?previousPending:[]);
+    if(!getLocal('zhijian-template-imported-account',null)){for(const [field,set]of [['saved',saved],['read',readIds]])for(const id of set)if(!profilePending.some(o=>o.field===field&&o.entryId===String(id)))profilePending.push({id:opId(),entryId:String(id),field,value:true,at:0});}
+    cachePending();putLocal('zhijian-template-last-account',profileScope);
+    if(previousScope===null)putLocal('zhijian-template-pending-local',[]);
   }
   applyProfile(data.records);let sent=0;
   while(profilePending.length&&sent<10){const batch=profilePending.slice(0,500),ids=new Set(batch.map(o=>o.id));const r=await fetch('/api/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ops:batch})});if(!r.ok)throw new Error();const updated=await r.json();if(updated.account!==profileAccount)throw new Error();profilePending=profilePending.filter(o=>!ids.has(o.id));cachePending();applyProfile(updated.records);sent++;}

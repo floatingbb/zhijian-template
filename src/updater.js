@@ -9,13 +9,15 @@ async function getJSON(url,fetcher) {
 }
 function wikiURL(params){return 'https://zh.wikisource.org/w/api.php?'+new URLSearchParams({format:'json',formatversion:'2',...params});}
 export async function collectCandidates(state,catalog,fetcher=fetch) {
-  const used=new Set(state.sourceHistory),initial=catalog.filter(x=>!used.has(x.title));
-  if(initial.length>=12)return initial;
+  const used=new Set(state.sourceHistory),initial=[...new Map([...catalog,...(state.discovery?.pending||[])].filter(x=>!used.has(x.title)).map(x=>[x.title,x])).values()];
   // Public API search is independent of any paid model; category cursors allow the library to grow.
   const result=[...initial],known=new Set(result.map(x=>x.title));
   const roots=[{name:'唐诗',category:'诗词'},{name:'宋詞',category:'诗词'},{name:'古文觀止',category:'古文'}];
-  const queue=state.discovery?structuredClone(state.discovery.queue):roots;
-  const visited=new Set(state.discovery?.visited||roots.map(c=>c.name));
+  // Old versions advanced cursors without retaining unused pages. Rescan once on upgrade.
+  const retained=Array.isArray(state.discovery?.pending);
+  const queue=retained?structuredClone(state.discovery.queue):roots;
+  const visited=new Set(retained?state.discovery.visited:roots.map(c=>c.name));
+  if(initial.length>=12&&initial.some(x=>!(state.sourceAttempts?.[x.title]))){result.discovery={queue,visited:[...visited]};return result;}
   for(let step=0;step<4&&queue.length&&result.length<30;step++){
     const current=queue.shift();
     const data=await getJSON(wikiURL({action:'query',list:'categorymembers',cmtitle:'Category:'+current.name,cmtype:'page|subcat',cmlimit:'50',...(current.continue?{cmcontinue:current.continue}:{})}),fetcher);
@@ -66,7 +68,11 @@ export class Updater {
       attemptedTitles.push(candidate.title);try{const source=await fetchSource(candidate,this.fetcher);const item=await generateEntry(source,this.config,this.fetcher);const key=normalize(item.quote);if(seen.has(key))continue;seen.add(key);items.push({...item,candidateTitle:candidate.title});}
       catch(error){errors.push({source:candidate.title,message:error.message.includes(this.config.aiKey)?'服务调用失败':error.message});}
     }
-    const result=await this.store.mutate(state=>{const current=new Set([...this.seed,...state.entries,...state.drafts].map(e=>normalize(e.quote)));const added=items.filter(e=>!current.has(normalize(e.quote)));state[this.config.autoPublish?'entries':'drafts'].push(...added);state.sourceHistory=[...new Set([...state.sourceHistory,...added.flatMap(e=>[e.sourcePage,e.candidateTitle])])];state.sourceAttempts||={};for(const title of attemptedTitles)state.sourceAttempts[title]=(state.sourceAttempts[title]||0)+1;if(candidates.discovery)state.discovery=candidates.discovery;state.lastRun={at:new Date().toISOString(),added:added.length,attempted,errors};if(added.length&&this.config.autoPublish)state.lastUpdate=new Date().toISOString();return state.lastRun;});
+    const result=await this.store.mutate(state=>{const current=new Set([...this.seed,...state.entries,...state.drafts].map(e=>normalize(e.quote)));const added=items.filter(e=>!current.has(normalize(e.quote)));state[this.config.autoPublish?'entries':'drafts'].push(...added);state.sourceHistory=[...new Set([...state.sourceHistory,...added.flatMap(e=>[e.sourcePage,e.candidateTitle])])];state.sourceAttempts||={};for(const title of attemptedTitles)state.sourceAttempts[title]=(state.sourceAttempts[title]||0)+1;
+      // Save unused pages together with the category cursor in the same atomic write.
+      // Failed sources stay available for a later attempt; successful sources are consumed.
+      const consumed=new Set(state.sourceHistory);state.discovery={...candidates.discovery,pending:candidates.filter(e=>!consumed.has(e.title))};
+      state.lastRun={at:new Date().toISOString(),added:added.length,attempted,errors};if(added.length&&this.config.autoPublish)state.lastUpdate=new Date().toISOString();return state.lastRun;});
     return result;
   }
   async tick(now=new Date()){
