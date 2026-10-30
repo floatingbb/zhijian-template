@@ -41,3 +41,8 @@ test('upgrading an old exhausted cursor rediscovers skipped pages without reusin
  const candidates=await collectCandidates(state,[],async()=>{calls++;return new Response(JSON.stringify({query:{categorymembers:[{ns:0,title:'已用篇目'},{ns:0,title:'以前漏掉的篇目'}]}}));});
  assert(calls>0);assert(candidates.some(x=>x.title==='以前漏掉的篇目'));assert(!candidates.some(x=>x.title==='已用篇目'));
 });
+
+test('self-hosted fonts are served as valid WOFF2 assets with long-lived cache headers',async t=>{
+ const f=await fixture(t);for(const name of ['reader-song-v1.woff2','reader-wen-v1.woff2']){const r=await f.call('/'+name);assert.equal(r.status,200);assert.equal(r.headers.get('content-type'),'font/woff2');assert.match(r.headers.get('cache-control'),/immutable/);const bytes=Buffer.from(await r.arrayBuffer());assert.equal(bytes.subarray(0,4).toString(),'wOF2');assert(bytes.length>10000);}
+ const style=await(await f.call('/style.css')).text();assert(style.includes('font-family:"Zhijian Reader Wen"'));assert(style.includes('url("/reader-wen-v1.woff2")'));assert(style.includes('font-display:swap'));
+});

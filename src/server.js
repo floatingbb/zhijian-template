@@ -9,7 +9,7 @@ import { Updater, normalize } from './updater.js';
 
 const publicRoot=fileURLToPath(new URL('../public/',import.meta.url));
 const seed=JSON.parse(await readFile(resolve(publicRoot,'seed.json'),'utf8'));
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json','.png':'image/png'};
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json','.png':'image/png','.woff2':'font/woff2'};
 const opValid=o=>o&&typeof o.entryId==='string'&&/^(\d+|entry-[a-f0-9]{64})$/.test(o.entryId)&&['read','saved'].includes(o.field)&&typeof o.value==='boolean'&&typeof o.id==='string'&&/^[\w-]{8,100}$/.test(o.id)&&Number.isSafeInteger(o.at)&&o.at>=0&&o.at<=Date.now()+300000;
 async function body(req,max=160000){let value='',size=0;for await(const chunk of req){size+=chunk.length;if(size>max)throw Object.assign(new Error('请求过大'),{status:413});value+=chunk;}try{return JSON.parse(value||'{}');}catch{throw Object.assign(new Error('JSON格式无效'),{status:400});}}
 function send(res,status,value,headers={}){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'same-origin',...headers});res.end(JSON.stringify(value));}
@@ -37,7 +37,7 @@ export async function createApp(config,options={}){
     }
     if(path==='/api/logout'&&req.method==='POST')return send(res,200,{ok:true},{'set-cookie':auth.cookie(true)});
     if(path.startsWith('/api/')&&!loggedIn)return send(res,401,{error:'请先输入此实例的访问密码'});
-    if(path==='/api/content'&&req.method==='GET'){const state=await store.read();return send(res,200,{entries:[...seed,...state.entries],updatedAt:state.lastUpdate});}
+    if(path==='/api/content'&&req.method==='GET'){const state=await store.read();return send(res,200,{account:auth.account,entries:[...seed,...state.entries],updatedAt:state.lastUpdate});}
     if(path==='/api/profile'&&req.method==='GET'){const state=await store.read();return send(res,200,{account:auth.account,records:state.records,updatedAt:state.profileUpdatedAt||null});}
     if(path==='/api/profile'&&req.method==='POST'){
       const input=await body(req);if(!Array.isArray(input.ops)||input.ops.length>500||!input.ops.every(opValid))return send(res,400,{error:'阅读记录格式无效'});
@@ -58,9 +58,9 @@ export async function createApp(config,options={}){
     if(!['GET','HEAD'].includes(req.method))return send(res,405,{error:'请求方法不支持'});
     const aliases={'/':'index.html','/favicon.ico':'favicon-32-v2.png','/apple-touch-icon.png':'apple-touch-icon-v2.png','/apple-touch-icon-precomposed.png':'apple-touch-icon-v2.png','/apple-touch-icon-180x180.png':'apple-touch-icon-v2.png','/apple-touch-icon-180x180-precomposed.png':'apple-touch-icon-v2.png'};
     const name=aliases[path]||path.slice(1);if(!/^[a-zA-Z0-9._-]+$/.test(name))return send(res,404,{error:'页面不存在'});
-    const allow=new Set(['index.html','app.js','style.css','template.js','template.css','seed.json','manifest.webmanifest','icon-512-v2.png','icon-192-v2.png','apple-touch-icon-v2.png','favicon-32-v2.png']);if(!allow.has(name))return send(res,404,{error:'页面不存在'});
+    const allow=new Set(['index.html','app.js','style.css','template.js','template.css','seed.json','manifest.webmanifest','icon-512-v2.png','icon-192-v2.png','apple-touch-icon-v2.png','favicon-32-v2.png','reader-song-v1.woff2','reader-wen-v1.woff2']);if(!allow.has(name))return send(res,404,{error:'页面不存在'});
     let file;try{file=await readFile(resolve(publicRoot,name));}catch{return send(res,404,{error:'页面不存在'});}
-    res.writeHead(200,{'content-type':types[extname(name)]||'application/octet-stream','x-content-type-options':'nosniff','referrer-policy':'same-origin','cache-control':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"});res.end(req.method==='HEAD'?undefined:file);
+    res.writeHead(200,{'content-type':types[extname(name)]||'application/octet-stream','x-content-type-options':'nosniff','referrer-policy':'same-origin','cache-control':extname(name)==='.woff2'?'public, max-age=31536000, immutable':'no-cache','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"});res.end(req.method==='HEAD'?undefined:file);
   }catch(error){send(res,error.status||500,{error:error.status?error.message:'服务暂不可用，请稍后重试'});}});
   app.requestTimeout=120000;app.headersTimeout=15000;
   return {app,store,updater,async close(){await new Promise((resolve,reject)=>app.close(error=>error?reject(error):resolve()));}};

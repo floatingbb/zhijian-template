@@ -21,7 +21,22 @@ $('cards').onclick=event=>{const r=event.target.closest('[data-read]'),s=event.t
 document.querySelectorAll('[data-category]').forEach(b=>b.onclick=()=>{category=b.dataset.category;shown=24;render();});$('search').oninput=()=>{shown=24;render();};$('statusFilter').onchange=()=>{statusFilter=$('statusFilter').value;shown=24;render();};$('loadMore').onclick=()=>{shown+=24;render();};$('random').onclick=()=>randomRead();$('featureRead').onclick=()=>{if(featuredId)read(featuredId);};$('close').onclick=()=>$('reader').close();$('reader').addEventListener('click',e=>{if(e.target===$('reader')){const r=$('reader').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('reader').close();}});$('navSaved').onclick=()=>{savedOnly=true;statusFilter='all';$('statusFilter').value='all';category='全部';shown=24;$('search').value='';render();$('collection').scrollIntoView();};$('navAll').onclick=reset;$('reset').onclick=reset;
 function about(){activeId=null;showDialog('纸间 / 关于这本小册子',`<h2>读一点旧时光。</h2><p>这里已有 ${entries.length} 则诗词、古文与历史日常，每页都有简短白话、阅读札记和可追溯的出处。</p><h4>内容与上新</h4><p>你可以在服务器填写自己的 AI API 密钥，抓取维基文库原典并生成短解读。每日生成默认关闭；生成结果默认进入待确认草稿。引文会与原典比对，作者、译文与札记仍需人工核对。每则底部都能打开出处。</p><p>历史笔记中的轶事与诗文情境，不一概当作已证实的生平事实。译文与札记为本站整理；本站拟句会单独标明。</p><h4>由你决定是否读过</h4><p>打开文章不会自动计入已读。点击“标为已读”后，这一则会从首页推荐和随机翻阅中排除，但仍可在全部内容或已读列表中重看；改回未读即可重新进入推荐。</p><h4>阅读记录</h4><p>收藏与已读标记绑定此实例的独立访问密码，手机与电脑可共用。首次连接会自动合并本机已有标记；同一实例下其他设备已明确取消的状态不会被旧记录恢复。回到网页或点击“同步记录”即可拉取最新状态，打开期间约每30秒检查一次。未联网时暂存本机，恢复网络后继续同步。</p>`);}
 $('about').onclick=about;$('sources').onclick=about;
-let refreshing=false;async function syncContent(manual=false){if(refreshing)return;refreshing=true;$('syncContent').disabled=true;try{const r=await fetch('/api/content',{cache:'no-store'});if(!r.ok)throw new Error('内容同步暂不可用');const data=await r.json();if(!Array.isArray(data.entries))throw new Error('内容格式无效');const n=data.entries.length-entries.length;entries=data.entries.sort((a,b)=>(b.addedAt||'').localeCompare(a.addedAt||''));render();$('updateStatus').textContent=data.updatedAt?`最近上新 ${new Intl.DateTimeFormat('zh-CN',{timeZone:'Etc/GMT+5',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(data.updatedAt))} · UTC−5`:'内容库已就绪';if(manual)notify(n>0?`新收录 ${n} 则，已同步`:'已经是最新内容');}catch{if(manual)notify('同步暂时失败，已保留现有内容，请稍后重试。');else $('updateStatus').textContent='暂未连上更新，当前内容仍可阅读';}finally{refreshing=false;$('syncContent').disabled=false;}}
+let refreshing=false,contentReady=false,contentAccount=null,seedEntries=[];
+const contentCacheKey=account=>'zhijian-template-content-cache-v1-'+account;
+function resetContentView(){entries=seedEntries;contentReady=false;contentAccount=null;render();}
+function rememberContent(data,account){if(typeof account==='string')putLocal(contentCacheKey(account),{version:1,account,entries:data.entries,updatedAt:data.updatedAt||null});}
+function restoreContentFor(account){
+  if(contentReady&&contentAccount&&contentAccount!==account)resetContentView();
+  if(contentReady)return;
+  const cached=getLocal(contentCacheKey(account),null);
+  if(cached?.version===1&&cached.account===account&&validContent(cached)&&cached.entries.length){entries=cached.entries;contentReady=true;contentAccount=account;render();$('updateStatus').textContent='已显示上次内容 · 正在后台检查上新';}
+}
+async function syncContent(manual=false){if(refreshing)return;refreshing=true;$('syncContent').disabled=true;try{
+  const r=await fetch('/api/content',{cache:'no-store'});if(r.status===401){resetContentView();throw new Error('请先登录');}if(!r.ok)throw new Error('内容同步暂不可用');const data=await r.json();if(!validContent(data))throw new Error('内容格式无效');const n=data.entries.length-entries.length;
+  entries=data.entries.sort((a,b)=>(b.addedAt||'').localeCompare(a.addedAt||''));contentReady=true;contentAccount=typeof data.account==='string'?data.account:profileAccount;rememberContent(data,contentAccount);render();
+  $('updateStatus').textContent=data.updatedAt?'最近上新 '+new Intl.DateTimeFormat('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date(data.updatedAt)):'内容库已就绪';if(manual)notify(n>0?'新收录 '+n+' 则，已同步':'已经是最新内容');
+}catch{if(manual)notify('同步暂时失败，已保留可阅读内容，请稍后重试。');else $('updateStatus').textContent='暂未连上更新，当前内容仍可阅读';}finally{refreshing=false;$('syncContent').disabled=false;}}
+
 $('syncContent').onclick=()=>syncContent(true);
 let profileAccount=null,profileRecords={},profilePending=[],profileBusy=null,profileClock=Date.now(),retryTimer=null;
 // Remember only the queue's owner here; authentication still comes from the server.
@@ -41,7 +56,7 @@ function applyProfile(records){profileRecords=records||{};const merged=JSON.pars
 function queueChange(entryId,field,value){profileClock=Math.max(Date.now(),profileClock+1);profilePending.push({id:opId(),entryId,field,value,at:profileClock});cachePending();profileNotice(profileAccount?'有新标记，正在同步…':'标记已暂存本机，联网登录后继续同步',!profileAccount);scheduleProfileSync();}
 function scheduleProfileSync(){clearTimeout(retryTimer);retryTimer=setTimeout(()=>syncProfile(),350);}
 async function syncProfile(manual=false){if(profileBusy)return profileBusy;profileBusy=(async()=>{try{
-  const response=await fetch('/api/profile',{cache:'no-store'});if(response.status===401){profileAccount=null;profileNotice('登录此实例后同步收藏与已读',true);return;}if(!response.ok)throw new Error();const data=await response.json();if(typeof data.account!=='string'||!data.records)throw new Error();
+  const response=await fetch('/api/profile',{cache:'no-store'});if(response.status===401){profileAccount=null;resetContentView();profileNotice('登录此实例后同步收藏与已读',true);return;}if(!response.ok)throw new Error();const data=await response.json();if(typeof data.account!=='string'||!data.records)throw new Error();
   if(profileAccount!==data.account){
     const previousScope=profileScope,previousPending=profilePending;
     profileAccount=data.account;profileScope=data.account;
@@ -51,11 +66,43 @@ async function syncProfile(manual=false){if(profileBusy)return profileBusy;profi
     cachePending();putLocal('zhijian-template-last-account',profileScope);
     if(previousScope===null)putLocal('zhijian-template-pending-local',[]);
   }
-  applyProfile(data.records);let sent=0;
+  restoreContentFor(data.account);applyProfile(data.records);let sent=0;
   while(profilePending.length&&sent<10){const batch=profilePending.slice(0,500),ids=new Set(batch.map(o=>o.id));const r=await fetch('/api/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ops:batch})});if(!r.ok)throw new Error();const updated=await r.json();if(updated.account!==profileAccount)throw new Error();profilePending=profilePending.filter(o=>!ids.has(o.id));cachePending();applyProfile(updated.records);sent++;}
   if(!profilePending.length){putLocal('zhijian-template-imported-account',profileAccount);profileNotice('已同步到此实例 · 手机电脑共用');}else{profileNotice('正在合并其余记录…');scheduleProfileSync();}
   if(manual)notify('收藏与已读记录已同步');
 }catch{profileNotice('暂时未同步，记录已保留，将自动重试');if(manual)notify('同步暂不可用，标记仍保留在本机。');clearTimeout(retryTimer);retryTimer=setTimeout(()=>syncProfile(),15000);}finally{profileBusy=null;}})();return profileBusy;}
 $('syncProfile').onclick=()=>syncProfile(true);
-async function init(){try{const r=await fetch('/seed.json');if(!r.ok)throw new Error();entries=await r.json();render();}catch{$('results').textContent='内容暂时没有加载成功，请刷新页面重试。';}await syncProfile();await syncContent();}
+function validContent(data){return data&&Array.isArray(data.entries)&&data.entries.length<=10000&&data.entries.every(e=>e&&['string','number'].includes(typeof e.id)&&['title','quote','author','era','work','summary','plain','detail','source','cat'].every(k=>typeof e[k]==='string')&&(!e.addedAt||typeof e.addedAt==='string'))&&(!data.updatedAt||Number.isFinite(Date.parse(data.updatedAt)));}
+async function init(){
+  const cachedSeed=getLocal('zhijian-template-seed-cache-v1',null);
+  if(cachedSeed?.version===1&&validContent(cachedSeed)){seedEntries=cachedSeed.entries;entries=seedEntries;render();}
+  // Public examples may display immediately; private snapshots require server-confirmed identity.
+  const seedTask=(async()=>{try{const r=await fetch('/seed.json');if(!r.ok)throw new Error();const seed=await r.json();if(!validContent({entries:seed}))throw new Error();seedEntries=seed;putLocal('zhijian-template-seed-cache-v1',{version:1,entries:seed});if(!contentReady){entries=seed;render();}}catch{if(!entries.length)$('results').textContent='内容暂时没有加载成功，请刷新页面重试。';}})();
+  await Promise.allSettled([seedTask,syncContent(),syncProfile()]);
+}
 window.addEventListener('focus',()=>{syncContent();syncProfile();});window.addEventListener('online',()=>syncProfile());window.addEventListener('storage',()=>syncProfile());document.addEventListener('visibilitychange',()=>{if(!document.hidden){syncContent();syncProfile();}});setInterval(()=>{if(!document.hidden)syncContent();},300000);setInterval(()=>{if(!document.hidden)syncProfile();},30000);render();init();
+
+// Appearance is local to this device and independent of reading-profile synchronization.
+const appearanceKey='zhijian-template-appearance-v1';
+const appearanceFonts={song:'"Zhijian Reader Song","Songti SC",serif',hei:'"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif',kai:'"Zhijian Reader Wen","Kaiti SC",serif'};
+const appearanceDefault={font:'song',size:18,ink:'#302e28',paper:'#f6f3ec'};
+const appearancePresets={paper:{ink:'#302e28',paper:'#f6f3ec'},warm:{ink:'#49392b',paper:'#f2e4cc'},green:{ink:'#273d32',paper:'#e4edde'},night:{ink:'#ded8cb',paper:'#202421'}};
+function validAppearance(value){const v=value&&typeof value==='object'?value:{};const color=(c,fallback)=>typeof c==='string'&&/^#[0-9a-f]{6}$/i.test(c)?c.toLowerCase():fallback;return {font:['yuan','mono'].includes(v.font)?'hei':Object.hasOwn(appearanceFonts,v.font)?v.font:appearanceDefault.font,size:Number.isFinite(v.size)?Math.max(14,Math.min(30,Math.round(v.size))):18,ink:color(v.ink,appearanceDefault.ink),paper:color(v.paper,appearanceDefault.paper)};}
+let appearanceState=validAppearance(getLocal(appearanceKey,appearanceDefault));
+function appearanceRGB(hex){return [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));}
+function appearanceMix(a,b,fraction){const x=appearanceRGB(a),y=appearanceRGB(b);return '#'+x.map((v,i)=>Math.round(v*(1-fraction)+y[i]*fraction).toString(16).padStart(2,'0')).join('');}
+function appearanceLuminance(hex){return appearanceRGB(hex).map(n=>{const s=n/255;return s<=.04045?s/12.92:((s+.055)/1.055)**2.4;}).reduce((sum,n,i)=>sum+n*[.2126,.7152,.0722][i],0);}
+function applyAppearance(){const root=document.documentElement;if(!root?.style)return;const s=appearanceState;const vars={'--paper':s.paper,'--ink':s.ink,'--muted':appearanceMix(s.ink,s.paper,.22),'--line':appearanceMix(s.paper,s.ink,.19),'--red':appearanceLuminance(s.paper)<.15?'#e6b19b':'#963f31','--serif':appearanceFonts[s.font],'--reading-font':appearanceFonts[s.font],'--read-size':s.size+'px','--card-paper':appearanceMix(s.paper,s.ink,.025),'--quote-paper':appearanceMix(s.paper,s.ink,.065)};for(const [key,value]of Object.entries(vars))root.style.setProperty(key,value);const meta=document.querySelector?.('meta[name="theme-color"]');if(meta)meta.setAttribute('content',s.paper);loadAppearanceFont();}
+let appearanceFontLoad=0;
+function loadAppearanceFont(){
+  const current=++appearanceFontLoad,font=appearanceState.font,family={song:'Zhijian Reader Song',kai:'Zhijian Reader Wen'}[font],help=$('appearanceHelp');
+  if(!family){help.textContent='已切换为系统黑体。外观设置自动保存在这台设备。';return;}
+  if(!document.fonts?.load){help.textContent='网页字库正在按需加载，完成后会自动换字形。';return;}
+  help.textContent='正在加载'+(font==='kai'?'文楷':'小薇宋')+'字库，完成后会自动换字形…';
+  Promise.resolve(document.fonts.load('18px "'+family+'"','纸间山河古文')).then(faces=>{if(current!==appearanceFontLoad)return;help.textContent=faces.length?'字库已加载。字体、字号和配色已应用，设置自动保存在这台设备。':'字库暂未生效，请检查网络后重新选择，或先使用系统黑体。';}).catch(()=>{if(current===appearanceFontLoad)help.textContent='字库加载失败，请检查网络后重新选择，或先使用系统黑体。';});
+}
+function appearanceControls(){const s=appearanceState;for(const [id,value]of Object.entries({appearanceFont:s.font,appearanceSize:s.size,appearanceInk:s.ink,appearancePaper:s.paper}))$(id).value=value;$('appearanceSizeValue').textContent=s.size+' px';const a=appearanceLuminance(s.ink),b=appearanceLuminance(s.paper),ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);$('appearanceContrast').textContent=ratio<3?'文字和背景比较接近，换深一点或浅一点会更清楚。':'';document.querySelectorAll('[data-look]').forEach(button=>button.setAttribute('aria-pressed',String(appearancePresets[button.dataset.look].ink===s.ink&&appearancePresets[button.dataset.look].paper===s.paper)));}
+function saveAppearance(next){appearanceState=validAppearance(next);applyAppearance();appearanceControls();try{localStorage.setItem(appearanceKey,JSON.stringify(appearanceState));}catch{$('appearanceHelp').textContent='当前调整已生效；本机暂时无法保存，关闭后可能恢复默认。';}}
+function initAppearance(){if(!document.documentElement?.style)return;applyAppearance();appearanceControls();document.querySelectorAll('[data-open-appearance]').forEach(button=>button.onclick=()=>{$('appearance').showModal();});$('closeAppearance').onclick=()=>$('appearance').close();for(const id of ['appearanceFont','appearanceSize','appearanceInk','appearancePaper'])$(id).oninput=$(id).onchange=()=>saveAppearance({font:$('appearanceFont').value,size:Number($('appearanceSize').value),ink:$('appearanceInk').value,paper:$('appearancePaper').value});document.querySelectorAll('[data-look]').forEach(button=>button.onclick=()=>saveAppearance({...appearanceState,...appearancePresets[button.dataset.look]}));$('resetAppearance').onclick=()=>saveAppearance(appearanceDefault);window.addEventListener('storage',event=>{if(event.key===appearanceKey){appearanceState=validAppearance(getLocal(appearanceKey,appearanceDefault));applyAppearance();appearanceControls();}});}
+initAppearance();
+

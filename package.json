@@ -1,10 +1,12 @@
 {
   "name": "zhijian-template",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "纸间：使用自己的 AI API 密钥，收藏诗词、古文与历史小知识。",
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.js",
     "test": "node --test",
