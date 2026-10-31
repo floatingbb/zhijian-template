@@ -4,6 +4,8 @@
 
 随站提供的两份WOFF2为使用新家族名的字体衍生子集：Zhijian Reader Wen基于[霞鹜文楷轻便版](https://github.com/lxgw/LxgwWenKai-Lite)，Zhijian Reader Song基于[站酷小薇](https://github.com/google/fonts/tree/main/ofl/zcoolxiaowei)。按SIL Open Font License 1.1分发；完整许可证及具体修改见public/FONT-NOTICES.md、public/font-wen-OFL.txt和public/font-song-OFL.txt。它们不采用项目代码的MIT许可。
 
+另提供传统宋体衍生子集Zhijian Reader Classic，基于[Noto Serif CJK SC Regular](https://github.com/notofonts/noto-cjk/tree/main/Serif)。完整OFL许可证见public/font-classic-OFL.txt；衍生家族名称已更改，不使用上游保留字体名作为衍生文件名称。
+
 ## 默认内容
 
 `public/seed.json` 附带12则示例。古典原文来自相应篇目的维基文库页面；每则保留作者、篇名和直接出处链接。宋代点茶知识参考香港古物古迹办事处“茶盏里的风波”展览说明，白话与阅读札记由本项目自行组织。

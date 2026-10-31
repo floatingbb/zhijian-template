@@ -84,7 +84,7 @@ window.addEventListener('focus',()=>{syncContent();syncProfile();});window.addEv
 
 // Appearance is local to this device and independent of reading-profile synchronization.
 const appearanceKey='zhijian-template-appearance-v1';
-const appearanceFonts={song:'"Zhijian Reader Song","Songti SC",serif',hei:'"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif',kai:'"Zhijian Reader Wen","Kaiti SC",serif'};
+const appearanceFonts={classic:'"Zhijian Reader Classic","Songti SC",serif',song:'"Zhijian Reader Song","Songti SC",serif',hei:'"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif',kai:'"Zhijian Reader Wen","Kaiti SC",serif'};
 const appearanceDefault={font:'song',size:18,ink:'#302e28',paper:'#f6f3ec'};
 const appearancePresets={paper:{ink:'#302e28',paper:'#f6f3ec'},warm:{ink:'#49392b',paper:'#f2e4cc'},green:{ink:'#273d32',paper:'#e4edde'},night:{ink:'#ded8cb',paper:'#202421'}};
 function validAppearance(value){const v=value&&typeof value==='object'?value:{};const color=(c,fallback)=>typeof c==='string'&&/^#[0-9a-f]{6}$/i.test(c)?c.toLowerCase():fallback;return {font:['yuan','mono'].includes(v.font)?'hei':Object.hasOwn(appearanceFonts,v.font)?v.font:appearanceDefault.font,size:Number.isFinite(v.size)?Math.max(14,Math.min(30,Math.round(v.size))):18,ink:color(v.ink,appearanceDefault.ink),paper:color(v.paper,appearanceDefault.paper)};}
@@ -95,10 +95,10 @@ function appearanceLuminance(hex){return appearanceRGB(hex).map(n=>{const s=n/25
 function applyAppearance(){const root=document.documentElement;if(!root?.style)return;const s=appearanceState;const vars={'--paper':s.paper,'--ink':s.ink,'--muted':appearanceMix(s.ink,s.paper,.22),'--line':appearanceMix(s.paper,s.ink,.19),'--red':appearanceLuminance(s.paper)<.15?'#e6b19b':'#963f31','--serif':appearanceFonts[s.font],'--reading-font':appearanceFonts[s.font],'--read-size':s.size+'px','--card-paper':appearanceMix(s.paper,s.ink,.025),'--quote-paper':appearanceMix(s.paper,s.ink,.065)};for(const [key,value]of Object.entries(vars))root.style.setProperty(key,value);const meta=document.querySelector?.('meta[name="theme-color"]');if(meta)meta.setAttribute('content',s.paper);loadAppearanceFont();}
 let appearanceFontLoad=0;
 function loadAppearanceFont(){
-  const current=++appearanceFontLoad,font=appearanceState.font,family={song:'Zhijian Reader Song',kai:'Zhijian Reader Wen'}[font],help=$('appearanceHelp');
+  const current=++appearanceFontLoad,font=appearanceState.font,family={classic:'Zhijian Reader Classic',song:'Zhijian Reader Song',kai:'Zhijian Reader Wen'}[font],help=$('appearanceHelp');
   if(!family){help.textContent='已切换为系统黑体。外观设置自动保存在这台设备。';return;}
   if(!document.fonts?.load){help.textContent='网页字库正在按需加载，完成后会自动换字形。';return;}
-  help.textContent='正在加载'+(font==='kai'?'文楷':'小薇宋')+'字库，完成后会自动换字形…';
+  help.textContent='正在加载'+({classic:'宋体',kai:'文楷',song:'小薇宋'}[font])+'字库，完成后会自动换字形…';
   Promise.resolve(document.fonts.load('18px "'+family+'"','纸间山河古文')).then(faces=>{if(current!==appearanceFontLoad)return;help.textContent=faces.length?'字库已加载。字体、字号和配色已应用，设置自动保存在这台设备。':'字库暂未生效，请检查网络后重新选择，或先使用系统黑体。';}).catch(()=>{if(current===appearanceFontLoad)help.textContent='字库加载失败，请检查网络后重新选择，或先使用系统黑体。';});
 }
 function appearanceControls(){const s=appearanceState;for(const [id,value]of Object.entries({appearanceFont:s.font,appearanceSize:s.size,appearanceInk:s.ink,appearancePaper:s.paper}))$(id).value=value;$('appearanceSizeValue').textContent=s.size+' px';const a=appearanceLuminance(s.ink),b=appearanceLuminance(s.paper),ratio=(Math.max(a,b)+.05)/(Math.min(a,b)+.05);$('appearanceContrast').textContent=ratio<3?'文字和背景比较接近，换深一点或浅一点会更清楚。':'';document.querySelectorAll('[data-look]').forEach(button=>button.setAttribute('aria-pressed',String(appearancePresets[button.dataset.look].ink===s.ink&&appearancePresets[button.dataset.look].paper===s.paper)));}

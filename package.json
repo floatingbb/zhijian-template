@@ -1,6 +1,6 @@
 {
   "name": "zhijian-template",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "纸间：使用自己的 AI API 密钥，收藏诗词、古文与历史小知识。",
   "type": "module",

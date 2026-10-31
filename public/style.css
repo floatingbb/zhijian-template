@@ -15,3 +15,5 @@ body{font-family:var(--reading-font,"Microsoft YaHei",sans-serif)}
 
 @font-face{font-family:"Zhijian Reader Song";src:url("/reader-song-v1.woff2") format("woff2");font-style:normal;font-weight:400;font-display:swap}
 @font-face{font-family:"Zhijian Reader Wen";src:url("/reader-wen-v1.woff2") format("woff2");font-style:normal;font-weight:400;font-display:swap}
+
+@font-face{font-family:"Zhijian Reader Classic";src:url("/reader-classic-v1.woff2") format("woff2");font-style:normal;font-weight:400;font-display:swap}
